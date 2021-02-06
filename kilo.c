@@ -14,6 +14,18 @@
 #define VERSION "0.0.0.0.0.1"
 #define CTRL_KEY(k) ((k) & 0x1f)
 
+enum editorKeys {
+	CURSOR_UP = 1000,
+	CURSOR_LEFT,
+	CURSOR_DOWN,
+	CURSOR_RIGHT,
+	DELETE_KEY,
+	HOME_KEY,
+	END_KEY,
+	PAGE_UP,
+	PAGE_DOWN
+};
+
 /*** data ***/
 
 struct editorConfig {
@@ -73,12 +85,68 @@ void enableRawMode() {
 		die("enableRawMode: tcsetattr");
 }
 
-char editorReadKey() {
+int editorReadKey() {
 	int nread;
 	char c;
 	while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
 		if (nread == -1 && errno != EAGAIN) die("editorReadKey: read");
 	}
+
+	if (c == '\x1b') {
+		char seq[3];
+
+		if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+		if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+
+		if (seq[0] == '[') {
+			if (seq[1] >= '0' && seq[1] <= '9') {
+				if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
+				if (seq[2] == '~') {
+					switch (seq[1]) {
+						case '1':
+							return HOME_KEY;
+						case '3':
+							return DELETE_KEY;
+						case '4':
+							return END_KEY;
+						case '5':
+							return PAGE_UP;
+						case '6':
+							return PAGE_DOWN;
+						case '7':
+							return HOME_KEY;
+						case '8':
+							return END_KEY;
+					}
+				}
+			} else {
+				switch (seq[1]) {
+					case 'A':
+						return CURSOR_UP;
+					case 'B':
+						return CURSOR_DOWN;
+					case 'C':
+						return CURSOR_RIGHT;
+					case 'D':
+						return CURSOR_LEFT;
+					case 'F':
+						return END_KEY;
+					case 'H':
+						return HOME_KEY;
+				}
+			}
+		} else if (seq[0] == 'O') {
+			switch (seq[1]) {
+				case 'F':
+					return END_KEY;
+				case 'H':
+					return HOME_KEY;
+			}
+		}
+
+		return '\x1b';
+	}
+
 	return c;
 }
 
@@ -142,7 +210,7 @@ void abFree(struct abuf *ab) {
 void editorDrawRows(struct abuf *ab) {
 	int y;
 
-	for (y=0; y<E.screenrows-1; y++) {
+	for (y=0; y<E.screenrows; y++) {
 		if (y == E.screenrows / 3) {
 			char welcome[80];
 			int welcomelen = snprintf(welcome, sizeof(welcome), "Kilo editor -- version %s", VERSION);
@@ -187,25 +255,29 @@ void editorRefreshScreen() {
 
 /*** input ***/
 
-void editorMoveCursor(char key) {
+void editorMoveCursor(int key) {
 	switch (key) {
-		case 'w':
-			E.cy--;
+		case CURSOR_UP:
+			if (E.cy != 0)
+				E.cy--;
 			break;
-		case 'a':
-			E.cx--;
+		case CURSOR_LEFT:
+			if (E.cx != 0)
+				E.cx--;
 			break;
-		case 's':
-			E.cy++;
+		case CURSOR_DOWN:
+			if (E.cy < E.screenrows)
+				E.cy++;
 			break;
-		case 'd':
-			E.cx++;
+		case CURSOR_RIGHT:
+			if (E.cx < E.screencols)
+				E.cx++;
 			break;
 	}
 }
 
 void editorProcessKeyPress() {
-	char c = editorReadKey();
+	int c = editorReadKey();
 
 	switch (c) {
 		case CTRL_KEY('q'):
@@ -213,12 +285,25 @@ void editorProcessKeyPress() {
 			write(STDOUT_FILENO, "\x1b[H", 3);
 			exit(0);
 			break;
-		case 'w':
-		case 'a':
-		case 's':
-		case 'd':
+		case CURSOR_UP:
+		case CURSOR_LEFT:
+		case CURSOR_DOWN:
+		case CURSOR_RIGHT:
 			editorMoveCursor(c);
 			break;
+		case HOME_KEY:
+			E.cx = 0;
+			break;
+		case END_KEY:
+			E.cx = E.screencols - 1;
+			break;
+		case PAGE_UP:
+		case PAGE_DOWN:
+			{
+				int times = E.screenrows;
+				while(times--)
+					editorMoveCursor(c == PAGE_UP ? CURSOR_UP : CURSOR_DOWN);
+			}
 		default:
 			break;
 	}
