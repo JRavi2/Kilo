@@ -511,7 +511,7 @@ void editorDrawRows(struct abuf *ab) {
 
 void editorDrawStatusBar(struct abuf *ab) {
 	// Invert Colors
-	abAppend(ab, "\x1b[7m", 4);
+	abAppend(ab, "\x1b[1;7m", 6);
 	char status[80], rstatus[80];
 
 	int len = snprintf(status, sizeof(status),
